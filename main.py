@@ -26,9 +26,10 @@ point_cloud = cv2.triangulatePoints(np.hstack((np.eye(3), np.zeros((3,1)))), P2,
 import cv2
 import numpy as np
 import open3d as o3d
+from scipy.ndimage import uniform_filter1d
 
 # Load the video and get the first frame
-cap = cv2.VideoCapture("final.mp4")
+cap = cv2.VideoCapture("traf_video_Trim.mp4")
 ret, frame1 = cap.read()
 
 # Define the termination criteria for the feature detection
@@ -61,6 +62,11 @@ while (cap.isOpened()):
 
     # Detect good features to track in the first frame
     p_0 = cv2.goodFeaturesToTrack(gray1, mask=None, **feature_params)
+
+    # Draw circles at feature point locations on the original image
+    for point in p_0:
+        x, y = point.ravel()
+        cv2.circle(frame1, (int(x), int(y)), 5, (0, 255, 0), -1)
 
     '''
     good features to track
@@ -107,7 +113,12 @@ is stored in the boolean NumPy array st, and the tracking error for each point i
     # Select only good points
     good_new = p_1[st == 1]
     good_old = p_0[st == 1]
-
+    # Draw the good features on the frame
+    """
+    for point in good_old:
+        point = (int(point[0]), int(point[1]))  # No need for additional index
+        cv2.circle(frame1, point, 5, (0, 0, 255), -1)
+"""
     '''
 good_new = p_1[st == 1]: This line selects only the feature points that were successfully tracked 
 in the second frame by indexing into the p_1 array using the boolean array st == 1, which contains 
@@ -126,6 +137,11 @@ that can be used for further analysis or visualization, such as motion estimatio
     # (this assumes a static camera, for a moving camera you would need to perform SfM)
     depth = np.abs(good_new - good_old)
 
+    # Apply a moving average filter to the depth estimates
+    window_size = 3  # or whatever window size you want
+    depth = uniform_filter1d(depth, size=window_size, mode='reflect')
+
+
     # Append the good points and their depth to the arrays
     # p2 = np.append(p2, good_new, axis=0)
     # good_old = good_old[:, np.newaxis, :]
@@ -135,17 +151,69 @@ that can be used for further analysis or visualization, such as motion estimatio
     # depths = np.append(depths, depth[:,0].mean())
     depths = np.append(depths, np.full((good_new.shape[0],), depth[:, 0].mean()))
 
+    # Resize the frame to a width of 640
+    #cv2.imshow('Feature Points', cv2.resize(frame1, (1800, int(frame1.shape[0] * 1800 / frame1.shape[1]))))
+
+
     # Set the first frame to be the second frame for the next iteration
     frame1 = frame2.copy()
+    # At the end of each loop iteration
+    if len(good_old) > 0:
+        # draw the good features on the frame
+        for i, point in enumerate(good_old):
+            point = (int(point[0]), int(point[1]))
+            cv2.circle(frame1, point, 5, (0, 0, 255), -1)
+
+            # draw the depth value next to the point
+            depth = depths[i]
+            cv2.putText(frame1, f'depth: {depth}', (point[0] + 5, point[1] + 5), cv2.FONT_HERSHEY_SIMPLEX, 1,
+                        (0, 0, 255), 2, cv2.LINE_AA)
+
+        # resize and show the frame
+        cv2.imshow('Feature Points', cv2.resize(frame1, (1800, int(frame1.shape[0] * 1800 / frame1.shape[1]))))
 
     # Break if the user presses the 'q' key
     if cv2.waitKey(25) & 0xFF == ord('q'):
         break
-
 # Release the video capture object
 cap.release()
 cv2.destroyAllWindows()
 
+# Convert the arrays to the correct format
+p1 = np.round(p1).astype(int)
+depths = depths[:, np.newaxis]
+
+# Ensure p1 values do not exceed image dimensions
+height, width, _ = frame1.shape
+p1[:, 0] = np.clip(p1[:, 0], 0, width-1)
+p1[:, 1] = np.clip(p1[:, 1], 0, height-1)
+
+# Convert 2D points to 1D indices
+indices = p1[:, 1] * width + p1[:, 0]
+
+# Reshape the image to a 2D array of colors
+colors = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
+colors = colors.reshape(-1, 3)
+
+# Create a point cloud
+pcd = o3d.geometry.PointCloud()
+
+# Set the points and colors of the point cloud
+pcd.points = o3d.utility.Vector3dVector(np.hstack((p1, depths)))
+# pcd.colors = o3d.utility.Vector3dVector(colors[indices])
+pcd.colors = o3d.utility.Vector3dVector(colors[indices][:, ::-1] / 255)
+
+
+
+# Show the point cloud
+o3d.visualization.draw_geometries([pcd])
+
+
+
+
+
+
+"""
 # Convert the 2D points to 3D coordinates using the depth information
 p3 = np.column_stack((p2, depths))
 
@@ -156,6 +224,7 @@ P2 = np.hstack((R, T))
 # obtain a 3D point cloud
 # point_cloud = cv2.triangulatePoints(np.hstack((np.eye(3), np.zeros((3,1)))), P2, p1.T, p2.T)
 
+"""
 """
 print(np.shape(np.hstack((np.eye(3), np.zeros((3, 1))))))
 print(np.shape(P2))
@@ -170,6 +239,7 @@ print(p2.T)
 (3, 4)
 (2, 0)
 (2, 0)
+"""
 """
 point_cloud = cv2.triangulatePoints(np.hstack((np.eye(3), np.zeros((3, 1)))), P2, p1.T, p2.T)
 camera_matrix = P2
@@ -203,7 +273,7 @@ points_3d = points_3d.reshape(-1, 3)
 
 
 # Load the video
-cap = cv2.VideoCapture("final.mp4")
+cap = cv2.VideoCapture("traf_video.mp4")
 
 # Read the first frame
 ret, frame = cap.read()
@@ -298,4 +368,4 @@ proj_mat3 = np.hstack((R1_3, t1_3))
 points4D = cv2.triangulatePoints(proj_mat1, proj_mat2, src_pts1_2, dst_pts1_2)
 points4D /= points4D[3]
 points3D_1_2 = points4D
-'''
+"""
