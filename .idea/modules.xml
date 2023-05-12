@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/ENS491-RealityCapture.iml" filepath="$PROJECT_DIR$/.idea/ENS491-RealityCapture.iml" />
+      <module fileurl="file://$USER_HOME$/PycharmProjects/Reality_Capture/.idea/Reality_Capture.iml" filepath="$USER_HOME$/PycharmProjects/Reality_Capture/.idea/Reality_Capture.iml" />
     </modules>
   </component>
 </project>
