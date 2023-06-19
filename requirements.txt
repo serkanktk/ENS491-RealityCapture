@@ -1,0 +1,4 @@
+# Usage: pip install -r requirements.txt
+# Packages used in the poject will be updated.
+
+python== 3.9.16
