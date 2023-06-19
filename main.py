@@ -1,11 +1,16 @@
 import cv2
 import numpy as np
 import open3d as o3d
-from scipy.ndimage.filters import uniform_filter
+from scipy.ndimage import uniform_filter
 
 # Load the video and get the first frame
-cap = cv2.VideoCapture(r"C:\Users\ipekd\ENS491-RealityCapture\traffic_2 - Made with Clipchamp.mp4")
+cap = cv2.VideoCapture(r"C:\Users\ipekd\ENS491-RealityCapture-1\video_sources\traf_video_Trim.mp4")
 ret, frame1 = cap.read()
+
+# Check if the first frame was successfully read
+if not ret:
+    print("Error reading the first frame from the video.")
+    exit(1)
 
 # Create a FAST feature detector
 fast = cv2.FastFeatureDetector_create(threshold=20, nonmaxSuppression=True)
@@ -51,8 +56,6 @@ while cap.isOpened():
     p2 = np.vstack([p2, good_new.reshape(-1, 2)])
     p1 = np.vstack([p1, good_old.reshape(-1, 2)])
     depths = np.append(depths, np.full((good_new.shape[0],), depth[:, 0].mean()))
-
-
 
     # Set the first frame to be the second frame for the next iteration
     frame1 = frame2.copy()
