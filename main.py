@@ -5,15 +5,20 @@ from scipy.ndimage import uniform_filter
 import os
 
 
-#
+# optical flow
+# camera calibration and camera pose estimation
+
+
+
+"""
 # Load YOLO
-net = cv2.dnn.readNet("yolov3.weights", "yolov3.cfg")
+net = cv2.dnn.readNet("YOLO_files/yolov3.weights", "YOLO_files/yolov3.cfg")
 layer_names = net.getLayerNames()
 output_layers = net.getUnconnectedOutLayersNames()
 
 # Loading the labels
 classes = []
-with open("coco.names", "r") as file:
+with open("YOLO_files/coco.names", "r") as file:
     classes = [line.strip() for line in file.readlines()]
 
 # Classes for Bicycle, Car, Motorcycle, Bus, and Truck
@@ -78,6 +83,13 @@ while(cap.isOpened()):
 cap.release()
 output_video.release()
 cv2.destroyAllWindows()
+"""
+
+
+
+
+
+
 
 
 # Load the video and get the first frame
@@ -123,16 +135,23 @@ while cap.isOpened():
     good_old = p_0[st[:, 0] == 1]
 
     # Calculate the depth of each point based on the motion of the camera
-    depth = np.abs(good_new - good_old)
-
+    # Calculate the depth of each point based on the motion of the camera
+    depth = np.linalg.norm(good_new - good_old, axis=1)
     # Apply a moving average filter to the depth estimates
     window_size = 3  # or whatever window size you want
     depth = uniform_filter(depth, size=window_size, mode='reflect')
 
+    # Apply the Kalman filter to the depth estimates  # Add this line to apply KalmanFilter
+    # smoothed_depth, _ = kf.smooth(depth)
+
+
+
     # Append the good points and their depth to the arrays
     p2 = np.vstack([p2, good_new.reshape(-1, 2)])
     p1 = np.vstack([p1, good_old.reshape(-1, 2)])
-    depths = np.append(depths, np.full((good_new.shape[0],), depth[:, 0].mean()))
+    depths = np.append(depths, depth)
+    # depths = np.append(depths, np.full((good_new.shape[0],), smoothed_depth[:, 0].mean()))  # Use smoothed_depth instead of depth
+
 
     # Set the first frame to be the second frame for the next iteration
     frame1 = frame2.copy()
