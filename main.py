@@ -10,14 +10,10 @@ import open3d as o3d
 from scipy.ndimage import uniform_filter
 import os
 import torch
-import pafy
+# import pafy
 from time import time
 
-
-
-
-# optical flow
-# camera calibration and camera pose estimation
+# camera calibration
 
 
 """
@@ -145,36 +141,58 @@ ret, frame1 = cap.read()
 
 
 
-all_depths = [] # DELETE LATER___________________________________________________________________________________________
-all_keypoints = []
 
 
 
 
-# Check if the first frame was successfully read
-if not ret:
-    print("Error reading the first frame from the video.")
-    exit(1)
+# Load the video and get the first frame
+cap = cv2.VideoCapture(r"StartToEnd.mp4")
+ret, frame1 = cap.read()
 
-# Create a FAST feature detector___________________________________________________________________________________________________________________________
+# Create a FAST feature detector
 fast = cv2.FastFeatureDetector_create(threshold=20, nonmaxSuppression=True)
 
-# Instead of initializing empty arrays for keypoints, initialize dense flow arrays
-flow = None
-hsv = np.zeros_like(frame1)
+# Storage for keypoints and depths
+all_keypoints = []
+all_matched_keypoints = []
+all_depths = []
+# As you detect and match keypoints between frames, store the indices of the keypoints in frame1 that have been matched. You'll need to store these for every frame.
+all_matched_indices = []
 
-# Loop through the video frame by frame
-# Loop through the video frame by frame
+
+# Feature matcher
+bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+
 while cap.isOpened():
     ret, frame2 = cap.read()
-
-    # Break if there is no more video
     if not ret:
         break
 
-    # Convert the frames to grayscale
     gray1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
     gray2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
+
+    # Feature detection using FAST
+    kp1 = fast.detect(gray1, None)
+    kp2 = fast.detect(gray2, None)
+
+    # Compute descriptors for the detected keypoints
+    kp1, des1 = cv2.xfeatures2d.SIFT_create().compute(gray1, kp1)
+    kp2, des2 = cv2.xfeatures2d.SIFT_create().compute(gray2, kp2)
+
+    # Feature matching
+    matches = bf.match(des1, des2)
+    # When you concatenate to get matched_keypoints, do the same with the stored indices to get a list of indices of the concatenated keypoints array.
+    matched_kpts_indices = [m.queryIdx for m in matches]
+    all_matched_indices.append(matched_kpts_indices)
+
+    """
+    # Visualize matched keypoints
+    matched_img = cv2.drawMatches(frame1, kp1, frame2, kp2, matches, None)
+    cv2.imshow('Matched Keypoints', matched_img)
+    """
+    # Store matched keypoints for later use
+    matched_kpts = np.float32([kp1[m.queryIdx].pt for m in matches])
+    all_matched_keypoints.append(matched_kpts)
 
     # Compute dense optical flow using Farneback method
     flow = cv2.calcOpticalFlowFarneback(gray1, gray2, None, 0.5, 3, 15, 3, 5, 1.2, 0)
@@ -183,88 +201,95 @@ while cap.isOpened():
     mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
 
     # Extracting meaningful keypoints from the dense flow
-    threshold_value = 2.0  # you can adjust this value_____________________________________________________________--ADJUST
+    threshold_value = 2.0
     keypoints_y, keypoints_x = np.where(mag > threshold_value)
     keypoints = np.stack((keypoints_x, keypoints_y), axis=-1).astype(np.float32)
-
-
-
-     # Visualize keypoints on the frame
-    vis_frame = frame2.copy()
-    for pt in keypoints:
-        cv2.circle(vis_frame, (int(pt[0]), int(pt[1])), 3, (0, 255, 0), -1)  # green color for the points
-
-    cv2.imshow('Key Points', vis_frame)
-    cv2.waitKey(1)  # Display the frame for a short time; you can adjust this delay if needed
-
-
-
-
-
-
-
-    # Append these keypoints for later use
     all_keypoints.append(keypoints)
 
-    # Convert keypoints to integer for indexing
     int_keypoints = keypoints.astype(np.int32)
-
-    # Corresponding depths (from the magnitude) for these keypoints
     current_depths = mag[int_keypoints[:, 1], int_keypoints[:, 0]]
     all_depths.append(current_depths)
 
-    # Visualization (optional)
-    hsv = np.zeros((frame1.shape[0], frame1.shape[1], 3), dtype=np.uint8)
-    hsv[..., 0] = ang * 180 / np.pi / 2
-    hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-    bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    # You can display this visualization using cv2.imshow() if needed.
+    print(f"Detected {len(keypoints)} keypoints for this frame.")
 
-    # Set the first frame to be the second frame for the next iteration
+    # Add delay for visualization and handle window closure
+    if cv2.waitKey(30) & 0xFF == ord('q'):  # Wait for 30ms and check if 'q' is pressed
+        break
+
     frame1 = frame2.copy()
 
-    """
-    Depth Display
-    do not delete this comment section
-    """
-
-# Release the video capture object
 cap.release()
 cv2.destroyAllWindows()
 
-# Concatenate the keypoints and depths for final processing
+
+# Check if any keypoints were detected
+if not all_keypoints:
+    print("No keypoints detected throughout the video.")
+    exit()
+
+
+# Point cloud creation using keypoints from optical flow
 keypoints = np.concatenate(all_keypoints)
 depths = np.concatenate(all_depths)
 depths = depths[:, np.newaxis]
 
-
-# Assuming 'keypoints' and 'depths' are populated correctly from the loop.
-
-# Convert the keypoints array to the correct format
-keypoints = np.round(keypoints).astype(int)
-
-# Ensure keypoints values do not exceed image dimensions
 height, width, _ = frame1.shape
+keypoints = np.round(keypoints).astype(int)  # Ensuring keypoints are integers
+
+
 keypoints[:, 0] = np.clip(keypoints[:, 0], 0, width-1)
 keypoints[:, 1] = np.clip(keypoints[:, 1], 0, height-1)
 
-# Convert 2D points to 1D indices
 indices = keypoints[:, 1] * width + keypoints[:, 0]
-
-# Reshape the image to a 2D array of colors
 colors = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
 colors = colors.reshape(-1, 3)
 
-# Create a point cloud
-pcd = o3d.geometry.PointCloud()
+pcd1 = o3d.geometry.PointCloud()
+pcd1.points = o3d.utility.Vector3dVector(np.hstack((keypoints, depths)))
+pcd1.colors = o3d.utility.Vector3dVector(colors[indices][:, ::-1] / 255)
 
-# Set the points and colors of the point cloud
-pcd.points = o3d.utility.Vector3dVector(np.hstack((keypoints, depths)))
-pcd.colors = o3d.utility.Vector3dVector(colors[indices][:, ::-1] / 255)
+o3d.visualization.draw_geometries([pcd1], window_name="Optical Flow Keypoints")
+print(f"Number of optical flow keypoints being visualized: {len(keypoints)}")
 
-# Show the point cloud
-o3d.visualization.draw_geometries([pcd])
+# Concatenating matched keypoints and indices:
+matched_keypoints = np.concatenate(all_matched_keypoints)
+matched_indices = np.concatenate(all_matched_indices)
 
+# Obtaining matched depths:
+matched_depths = depths[matched_indices]
+
+
+# Converting matched keypoints to float and constructing 3D points:
+# Convert matched_keypoints to float, as o3d expects float values
+matched_keypoints_float = matched_keypoints.astype(np.float32)
+# Construct the 3D points for the matched keypoints
+matched_3d_points = np.hstack((matched_keypoints_float, matched_depths))
+
+
+# Creating the point cloud and visualizing:
+pcd2 = o3d.geometry.PointCloud()
+pcd2.points = o3d.utility.Vector3dVector(matched_3d_points)
+
+matched_colors_indices = matched_keypoints[:, 1] * width + matched_keypoints[:, 0]
+matched_colors_indices = matched_colors_indices.astype(np.int32)
+if np.any(matched_colors_indices < 0) or np.any(matched_colors_indices >= len(colors)):
+    print("Invalid indices detected!")
+    # Debug or handle the issue accordingly
+    
+#  the shapes and sizes of arrays
+print(matched_keypoints.shape)
+print(colors.shape)
+print(matched_colors_indices.shape)
+
+
+
+
+
+pcd2.colors = o3d.utility.Vector3dVector(colors[matched_colors_indices][:, ::-1] / 255)
+
+
+o3d.visualization.draw_geometries([pcd2], window_name="Matched Keypoints Point Cloud")
+print(f"Number of matched keypoints being visualized: {len(matched_keypoints)}")
 
 
 
