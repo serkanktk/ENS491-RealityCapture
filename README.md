@@ -8,6 +8,18 @@ https://github.com/ultralytics/yolov5 <br />
 https://github.com/niconielsen32/ComputerVision
 
 
+- Python version: Python 3.9.13
+- git clone https://github.com/ozgekarasu/ENS491-RealityCapture.git
+- git clone https://github.com/ultralytics/yolov5  # clone
+- cd yolov5
+- pip install -r requirements.txt  # install
+- pip install PyTorch from the website:  https://pytorch.org/get-started/locally/
+- pip install opencv-contrib-python
+- pip install numpy
+- pip install scipy
+- pip install open3d
+
+
 ## Authors
 
 - İpek Nur Dolu: [@ipekdolu](https://github.com/ipekdolu)
