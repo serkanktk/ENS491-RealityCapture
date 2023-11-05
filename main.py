@@ -13,7 +13,11 @@ import torch
 # import pafy
 from time import time
 
-# camera calibration
+# disparity map matrix: -->
+depth_matrix = np.load('final_disparity.npy')
+print(depth_matrix)
+# exit()
+
 
 # Load the video and get the first frame
 cap = cv2.VideoCapture(r"StartToEnd.mp4")
@@ -32,6 +36,8 @@ all_matched_indices = []
 
 # Feature matcher
 bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+frame_idx = 0
+
 
 while cap.isOpened():
     ret, frame2 = cap.read()
@@ -71,14 +77,19 @@ while cap.isOpened():
     mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
 
     # Extracting meaningful keypoints from the dense flow
-    threshold_value = 2.0
+    threshold_value = 20.0
     keypoints_y, keypoints_x = np.where(mag > threshold_value)
     keypoints = np.stack((keypoints_x, keypoints_y), axis=-1).astype(np.float32)
     all_keypoints.append(keypoints)
 
+   
+
+
     int_keypoints = keypoints.astype(np.int32)
-    current_depths = mag[int_keypoints[:, 1], int_keypoints[:, 0]]
+    current_depths = depth_matrix[frame_idx][int_keypoints[:, 1], int_keypoints[:, 0]]
+
     all_depths.append(current_depths)
+    frame_idx += 1
 
     print(f"Detected {len(keypoints)} keypoints for this frame.")
 
@@ -120,6 +131,12 @@ pcd1.colors = o3d.utility.Vector3dVector(colors[indices][:, ::-1] / 255)
 
 o3d.visualization.draw_geometries([pcd1], window_name="Optical Flow Keypoints")
 print(f"Number of optical flow keypoints being visualized: {len(keypoints)}")
+
+
+
+
+
+
 
 # Concatenating matched keypoints and indices:
 matched_keypoints = np.concatenate(all_matched_keypoints)
