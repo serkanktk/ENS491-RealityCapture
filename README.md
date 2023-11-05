@@ -7,6 +7,19 @@ References: <br />
 https://github.com/ultralytics/yolov5 <br />
 https://github.com/niconielsen32/ComputerVision
 
+@article{Ranftl2020,
+	author    = {Ren\'{e} Ranftl and Katrin Lasinger and David Hafner and Konrad Schindler and Vladlen Koltun},
+	title     = {Towards Robust Monocular Depth Estimation: Mixing Datasets for Zero-shot Cross-dataset Transfer},
+	journal   = {IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)},
+	year      = {2020},
+}
+
+@article{Ranftl2021,
+	author    = {Ren\'{e} Ranftl and Alexey Bochkovskiy and Vladlen Koltun},
+	title     = {Vision Transformers for Dense Prediction},
+	journal   = {ArXiv preprint},
+	year      = {2021},
+}
 
 - Python version: Python 3.9.13
 - git clone https://github.com/ozgekarasu/ENS491-RealityCapture.git
