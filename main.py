@@ -13,6 +13,127 @@ import torch
 # import pafy
 from time import time
 
+def load_model():
+    """
+    Loads Yolo5 model from pytorch hub.
+    :return: Trained Pytorch model.
+    """
+    model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+    return model
+
+def get_video(file_path):
+    """
+    Opens the local video file using OpenCV.
+    :return: opencv2 video capture object.
+    """
+    return cv2.VideoCapture(file_path)
+
+def class_to_label(classes, x):
+    """
+    For a given label value, return corresponding string label.
+    :param x: numeric label
+    :return: corresponding string label
+    """
+    return classes[int(x)]
+
+def score_frame(model, device, frame):
+    """
+    Takes a single frame as input, and scores the frame using yolo5 model.
+    :param frame: input frame in numpy/list/tuple format.
+    :return: Labels and Coordinates of objects detected by model in the frame.
+    """
+    model.to(device)
+    frame = [frame]
+    results = model(frame)
+    labels, cord = results.xyxyn[0][:, -1], results.xyxyn[0][:, :-1]
+    return labels, cord
+
+def get_object_coordinates(model, device, frame):
+    results = score_frame(model, device, frame)
+    labels, cord = results
+    x_shape, y_shape = frame.shape[1], frame.shape[0]
+    
+    allowed_labels = ["car", "truck", "bus"]
+    valid_detections = []
+
+    for i in range(len(labels)):
+        if class_to_label(model.names, labels[i]) in allowed_labels:
+            valid_detections.append(cord[i])
+
+    if len(valid_detections) == 1:  # Only one valid detection
+        row = valid_detections[0]
+        x1, y1, x2, y2 = int(row[0]*x_shape), int(row[1]*y_shape), int(row[2]*x_shape), int(row[3]*y_shape)
+        
+        # Calculate center and width/height
+        x_center = (x1 + x2) // 2
+        y_center = (y1 + y2) // 2
+        width = x2 - x1
+        height = y2 - y1
+
+        return x_center, y_center, width, height
+    else:  # No valid detection or more than one valid detection
+        return 10000, 10000, 10000, 10000
+
+
+video_path = r"StartToEnd.mp4"
+cap = get_video(video_path)
+
+device = 'cpu'
+model = load_model()
+
+frame_data_list = []  # List to store the dictionary data for each frame
+frame_number = 0
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    x_center, y_center, width, height = get_object_coordinates(model, device, frame)
+
+    # Create a dictionary for the current frame data
+    frame_data = {
+        "frame_number": frame_number,
+        "x_center": x_center,
+        "y_center": y_center,
+        "width": width,
+        "length": height
+    }
+
+    # Append the frame data to the list
+    frame_data_list.append(frame_data)
+
+    frame_number += 1
+
+cap.release()
+
+
+for data in frame_data_list:
+    print(data)
+
+
+# In data, frame_number starts from 0
+# If there are more than 1 detected object or there is no any detected object in the frame
+    # then it will return 10.000 (ten thousand) for the frame
+
+# exit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # disparity map matrix: -->
 depth_matrix = np.load('final_disparity.npy')
 print(depth_matrix)
@@ -39,10 +160,23 @@ bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
 frame_idx = 0
 
 
+
 while cap.isOpened():
     ret, frame2 = cap.read()
     if not ret:
         break
+
+    # getting the frame data
+    frame_data = frame_data_list[frame_idx]
+    x_center_of_frame = frame_data["x_center"]
+    y_center_of_frame = frame_data["y_center"]
+    width_of_boundingbox = frame_data["width"]
+    length_of_boundingbox = frame_data["length"]
+
+    x_min = x_center_of_frame - (width_of_boundingbox / 2)
+    x_max = x_center_of_frame + (width_of_boundingbox / 2)
+    y_min = y_center_of_frame - (length_of_boundingbox / 2)
+    y_max = y_center_of_frame + (length_of_boundingbox / 2)
 
     gray1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
     gray2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
@@ -57,18 +191,19 @@ while cap.isOpened():
 
     # Feature matching
     matches = bf.match(des1, des2)
-    # When you concatenate to get matched_keypoints, do the same with the stored indices to get a list of indices of the concatenated keypoints array.
-    matched_kpts_indices = [m.queryIdx for m in matches]
-    all_matched_indices.append(matched_kpts_indices)
 
-    """
-    # Visualize matched keypoints
-    matched_img = cv2.drawMatches(frame1, kp1, frame2, kp2, matches, None)
-    cv2.imshow('Matched Keypoints', matched_img)
-    """
-    # Store matched keypoints for later use
-    matched_kpts = np.float32([kp1[m.queryIdx].pt for m in matches])
-    all_matched_keypoints.append(matched_kpts)
+    # Filtering the matches and storing the results
+    filtered_indices = []
+    filtered_kpts = []
+    for m in matches:
+        pt = kp1[m.queryIdx].pt
+        if (x_min <= pt[0] <= x_max and y_min <= pt[1] <= y_max):
+            filtered_indices.append(m.queryIdx)
+            filtered_kpts.append(pt)
+
+    # Append filtered indices and keypoints to their respective lists
+    all_matched_indices.append(filtered_indices)
+    all_matched_keypoints.append(np.float32(filtered_kpts))
 
     # Compute dense optical flow using Farneback method
     flow = cv2.calcOpticalFlowFarneback(gray1, gray2, None, 0.5, 3, 15, 3, 5, 1.2, 0)
@@ -80,18 +215,24 @@ while cap.isOpened():
     threshold_value = 20.0
     keypoints_y, keypoints_x = np.where(mag > threshold_value)
     keypoints = np.stack((keypoints_x, keypoints_y), axis=-1).astype(np.float32)
-    all_keypoints.append(keypoints)
+    
+    # Filtering out the keypoints that fall inside the bounding box
+    filtered_dense_kpts = [pt for pt in keypoints if (x_min <= pt[0] <= x_max and y_min <= pt[1] <= y_max)]
+    
+    # Append the filtered keypoints to all_keypoints
+    all_keypoints.append(np.float32(filtered_dense_kpts))
+
 
    
 
 
-    int_keypoints = keypoints.astype(np.int32)
-    current_depths = depth_matrix[frame_idx][int_keypoints[:, 1], int_keypoints[:, 0]]
+    int_filtered_kpts = np.array(filtered_dense_kpts).astype(np.int32)
+    current_depths = depth_matrix[frame_idx][int_filtered_kpts[:, 1], int_filtered_kpts[:, 0]]
 
     all_depths.append(current_depths)
     frame_idx += 1
 
-    print(f"Detected {len(keypoints)} keypoints for this frame.")
+    print(f"Detected {len(keypoints)} keypoints for frame " + str(frame_idx))
 
     # Add delay for visualization and handle window closure
     if cv2.waitKey(30) & 0xFF == ord('q'):  # Wait for 30ms and check if 'q' is pressed
@@ -107,6 +248,21 @@ cv2.destroyAllWindows()
 if not all_keypoints:
     print("No keypoints detected throughout the video.")
     exit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Point cloud creation using keypoints from optical flow
@@ -177,6 +333,45 @@ pcd2.colors = o3d.utility.Vector3dVector(colors[matched_colors_indices][:, ::-1]
 
 o3d.visualization.draw_geometries([pcd2], window_name="Matched Keypoints Point Cloud")
 print(f"Number of matched keypoints being visualized: {len(matched_keypoints)}")
+
+
+
+
+
+# Concatenate all matched keypoints and their depths
+matched_keypoints = np.concatenate(all_matched_keypoints)
+depths = np.concatenate(all_depths)
+depths = depths[:, np.newaxis]
+
+# Filter matched keypoints and depths based on bounding box coordinates
+inside_bbox_indices = np.where((matched_keypoints[:, 0] >= x_min) & 
+                               (matched_keypoints[:, 0] <= x_max) &
+                               (matched_keypoints[:, 1] >= y_min) &
+                               (matched_keypoints[:, 1] <= y_max))[0]
+inside_bbox_keypoints = matched_keypoints[inside_bbox_indices]
+inside_bbox_depths = depths[inside_bbox_indices]
+
+# Construct 3D points for the matched keypoints inside the bounding box
+inside_bbox_3d_points = np.hstack((inside_bbox_keypoints, inside_bbox_depths))
+
+# Create point cloud for visualization
+pcd = o3d.geometry.PointCloud()
+pcd.points = o3d.utility.Vector3dVector(inside_bbox_3d_points)
+
+inside_bbox_colors_indices = inside_bbox_keypoints[:, 1] * width + inside_bbox_keypoints[:, 0]
+inside_bbox_colors_indices = inside_bbox_colors_indices.astype(np.int32)
+
+# Ensuring no invalid indices
+if np.any(inside_bbox_colors_indices < 0) or np.any(inside_bbox_colors_indices >= len(colors)):
+    print("Invalid indices detected!")
+    # Handle the issue accordingly
+    
+pcd.colors = o3d.utility.Vector3dVector(colors[inside_bbox_colors_indices][:, ::-1] / 255)
+
+# Visualize the point cloud
+o3d.visualization.draw_geometries([pcd], window_name="Matched Keypoints Inside Bounding Box")
+print(f"Number of matched keypoints inside the bounding box being visualized: {len(inside_bbox_keypoints)}")
+
 
 
 
